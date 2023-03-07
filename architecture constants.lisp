@@ -66,25 +66,6 @@
               (:zero-or-more cpat:any-char))) 
   "Cheap-patmatch pattern that should match one-line defconstant defs.")
 
-#+IGNORE
-(defun |dummy-#.-reader| (stream subchar arg)
-   (declare (ignore subchar arg))
-   (list 'pound-dot (read stream t nil t)))
-
-#+IGNORE
- (set-dispatch-macro-character #\# #\$ #'|#$-reader|)
-
-
-#+IGNORE ; this tries to use the lisp reader immediately. That might not be the best approach
-(defun process-defconstants-in-file (pathname)
-  (with-open-file (stream pathname :direction :input)
-    (let ((*readtable* (copy-readtable)))
-      ;(setf (readtable-case *readtable*) :preserve) ; causes problems when package designators are encountered
-      (set-dispatch-macro-character #\# #\. #'|dummy-#.-reader|)
-      (loop as form = (read stream nil nil nil)
-        while form
-        collect form))))
-
 (defclass defconstant-lines ()
   ((arch-keyword :initarg :arch-keyword :initform nil :accessor arch-keyword
                  :documentation "One of *arch-keywords*")
