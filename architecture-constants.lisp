@@ -246,9 +246,9 @@
         (dolist (cdef sorted-constant-defs)
           (print-row cdef))))))
 
-; (with-open-file (stream "ccl:constant-table.md" :direction :output :if-exists :supersede) (print-table stream))
+; (with-open-file (stream "ccl:constant-table.org" :direction :output :if-exists :supersede) (print-table stream))
 
-
-
+; Convert file to markdown via
+;  pandoc --from=org --to=gfm "ccl:constant-table.org" > "ccl:constant-table.md"
 
 
