@@ -1,4 +1,4 @@
-;;; Architecture constants.lisp
+;;; Architecture-constants.lisp
 ;;; 05-Mar-2023 SVS
 
 (in-package :cl-user) ;;; don't put this in a target package because this covers all targets
@@ -15,6 +15,8 @@
   "Number of bits in a word")
  
 (defparameter *arch-keywords* '(:X8664 :X8632 :ARM32 :ARM64 :PPC32 :PPC64))
+
+(defparameter *arch-keywords-to-ignore* '(:ARM64) "Doesn't exist yet.")
 
 (defparameter *arch-pathnames* '((:X8664 . #P"ccl:compiler;X86;X8664;x8664-arch.lisp")
                                  (:X8632 . #P"ccl:compiler;X86;X8632;x8632-arch.lisp")
@@ -35,8 +37,18 @@
      ))
   "Cheap-patmatch pattern that captures lines that start with '(def'")
 
-
-     
+(defparameter *single-balanced-paren-matcher*
+  `( ; match-parens starts with pos pointing at a #\( and should end with pos pointing one beyond #\)
+    (:named match-parens
+            (:one-nongreedy #\() ; skip past the #\(
+            (:named match-loop
+                    (:or (:seq (:lookahead-string "(")
+                               match-parens
+                               match-loop)
+                         (:one-nongreedy #\))
+                         (:seq (:one-or-more ,(cpat:any-char-but "()"))
+                               match-loop)))))
+  "Use this when you know current string position is at #\( and you want it to consume string until balancing #\)")
 
 (defparameter *defconstant-pattern*
   `((:zero-or-more cpat:whitep)
@@ -50,9 +62,11 @@
               (:one-or-more cpat:non-whitep))
     (:one-or-more cpat:whitep)
     (:capture value
-              (:one-or-more ,(lambda (char)
-                               (and (cpat:non-whitep char)
-                                    (not (char= #\) char))))))
+              (:or (:seq (:zero-or-more ,(cpat:any-char-but "("))
+                          ,*single-balanced-paren-matcher*)
+                   (:one-or-more ,(lambda (char)
+                                    (and (cpat:non-whitep char)
+                                         (not (char= #\) char)))))))
     (:zero-or-more cpat:whitep)
     (:or (:seq (:capture docstring
                          (:one #\")
@@ -91,7 +105,6 @@
                           (equalp defstring (cdr defform))))))
       collect (cons line pos))))
 
-; (process-defconstants-in-file #P"ccl:compiler;X86;X8664;x8664-arch.lisp")
 ; (get-def-lines-in-file #P"ccl:compiler;X86;X8664;x8664-arch.lisp" "defconstant")
 
 (defun get-arch-defconstant-lines (arch-keyword)
@@ -135,7 +148,7 @@
         (unless (or (search "#+" value) ; don't try to parse these things; preserve all information
                     (search "#-" value))
           (let* ((*read-eval* nil)
-                 (read-value (read-from-string value nil nil)))
+                 (read-value (ignore-errors (read-from-string value nil nil)))) ; because we might try to read a package designator that's not defined
             (when (numberp read-value)
               (setf value read-value))))
         (values defname value comment)))))
@@ -181,53 +194,57 @@
 
 (defun print-table (stream)
   "Calls #'get-all-constants and produces github-flavored-markdown table from it"
-  
-  (labels ((print-hr ()
-             ;; horizontal rule
-             (format stream "~%|--|") ; skip past first column
-             (dolist (kwd *arch-keywords*)
-               (let ((lenk (length (symbol-name kwd))))
-                 (dotimes (i (+ 2 lenk))
-                   (write-char #\- stream)))
-               (write-char #\| stream)))
-           
-           (print-header ()
-             (format stream "|  ") ; skip past first column
-             (dolist (kwd *arch-keywords*)
-               (format stream "| ~A " kwd))
-             (format stream "|") ; final |
-             (print-hr))
-           
-           (print-row (constant-def)
-             (format stream "~%| ~A " (cname constant-def))
-             (dolist (kwd *arch-keywords*)
-               (let ((value (cdr (assoc kwd (cvalues constant-def)))))
-                 (if value
-                     (format stream "| ~A " value)
-                     (format stream "|   "))))
-             (format stream "|") ; final 
-             ;; add a soft row if there are any comments
-             (when (ccomments constant-def) ; when there are any comments at all
-               (format stream "~%|  ") ; skip past first column
-               (dolist (kwd *arch-keywords*)
-                 (let ((comment (cdr (assoc kwd (ccomments constant-def)))))
-                   (if comment
-                       (format stream "| ~A " (string-trim '(#\Space #\Tab #\Return #\Linefeed) comment))
+  (let ((real-arch-keywords (remove-if (lambda (item)
+                                         (member item *arch-keywords-to-ignore*))
+                                       *arch-keywords*)))
+    (labels ((print-hr ()
+               ;; horizontal rule
+               (format stream "~%|--|") ; skip past first column
+               (dolist (kwd real-arch-keywords)
+                 (let ((lenk (length (symbol-name kwd))))
+                   (dotimes (i (+ 2 lenk))
+                     (write-char #\- stream)))
+                 (write-char #\| stream)))
+             
+             (print-header ()
+               (format stream "|  ") ; skip past first column
+               (dolist (kwd real-arch-keywords)
+                 (format stream "| ~A " kwd))
+               (format stream "|") ; final |
+               (print-hr))
+             
+             (print-row (constant-def)
+               (format stream "~%| ~A " (cname constant-def))
+               (dolist (kwd real-arch-keywords)
+                 (let ((value (cdr (assoc kwd (cvalues constant-def))))
+                       (comment (cdr (assoc kwd (ccomments constant-def)))))
+                   (if value
+                       (format stream "| ~A ~@[~A~]" value (when comment (string-trim '(#\Space #\Tab #\Return #\Linefeed) comment)))
                        (format stream "|   "))))
-               (format stream "|")) ; final |
-             (print-hr)))
-    
-    (let ((table (get-all-constants))
-          (sorted-constant-defs nil))
-      (setf sorted-constant-defs
-            (sort (loop for cdef being each hash-value of table
-                    collect cdef)
-                  #'string-lessp
-                  :key #'cname))
-      (print-header)
+               (format stream "|") ; final 
+               ;; add a soft row if there are any comments
+               #+IGNORE ; no don't make a new row. Too confusing.
+               (when (ccomments constant-def) ; when there are any comments at all
+                 (format stream "~%|  ") ; skip past first column
+                 (dolist (kwd real-arch-keywords)
+                   (let ((comment (cdr (assoc kwd (ccomments constant-def)))))
+                     (if comment
+                         (format stream "| ~A " (string-trim '(#\Space #\Tab #\Return #\Linefeed) comment))
+                         (format stream "|   "))))
+                 (format stream "|")) ; final |
+               (print-hr)))
       
-      (dolist (cdef sorted-constant-defs)
-        (print-row cdef)))))
+      (let ((table (get-all-constants))
+            (sorted-constant-defs nil))
+        (setf sorted-constant-defs
+              (sort (loop for cdef being each hash-value of table
+                      collect cdef)
+                    #'string-lessp
+                    :key #'cname))
+        (print-header)
+        
+        (dolist (cdef sorted-constant-defs)
+          (print-row cdef))))))
 
 ; (with-open-file (stream "ccl:constant-table.md" :direction :output :if-exists :supersede) (print-table stream))
 
