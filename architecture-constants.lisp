@@ -193,7 +193,7 @@
 ; (get-all-constants) ; Works! Now to turn it into a printed table...
 
 (defun print-table (stream)
-  "Calls #'get-all-constants and produces github-flavored-markdown table from it"
+  "Calls #'get-all-constants and produces an org-mode table from it"
   (let ((real-arch-keywords (remove-if (lambda (item)
                                          (member item *arch-keywords-to-ignore*))
                                        *arch-keywords*)))
