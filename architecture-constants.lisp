@@ -250,5 +250,6 @@
 
 ; Convert file to markdown via
 ;  pandoc --from=org --to=gfm "ccl:constant-table.org" > "ccl:constant-table.md"
+; See https://francopasut.netlify.app/post/org-to-markdown-gfm/
 
 
